@@ -38,6 +38,11 @@
             </div>
         </header>
 
+        <!-- Mensagem de Erro -->
+        <div id="error-container" class="hidden p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50" role="alert">
+            <!-- Mensagens de erro serão inseridas aqui -->
+        </div>
+
         <!-- Seção de Ferramentas Úteis -->
         <div class="bg-white p-4 rounded-lg shadow-md mb-8">
             <h2 class="text-xl font-semibold mb-3 text-center">Ferramentas Úteis</h2>
@@ -115,7 +120,9 @@
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURAÇÃO DO FIREBASE ---
-        // SUBSTITUA ESTE OBJETO PELAS SUAS PRÓPRIAS CREDENCIAIS DO FIREBASE
+        // As credenciais abaixo são para o seu projeto Firebase.
+        // IMPORTANTE: Para que a aplicação funcione, as regras de segurança do Firestore
+        // no seu projeto precisam de permitir leitura e escrita.
         const firebaseConfig = {
           apiKey: "AIzaSyCLzKaQ2EMTHPSqd8QyOz_ctJ2p8_ZEuqU",
           authDomain: "organizacaofinanceiro-f0784.firebaseapp.com",
@@ -140,6 +147,7 @@
         const feedbackMessage = document.getElementById('feedback-message');
         const authStatusEl = document.getElementById('auth-status');
         const userIdEl = document.getElementById('user-id');
+        const errorContainer = document.getElementById('error-container');
 
         let banks = [];
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -239,6 +247,11 @@
             feedbackMessage.style.opacity = '1';
             setTimeout(() => { feedbackMessage.style.opacity = '0'; }, 2500);
         }
+        
+        function displayError(message) {
+            errorContainer.innerHTML = message;
+            errorContainer.classList.remove('hidden');
+        }
 
         // --- DATA HANDLING FUNCTIONS (FIRESTORE) ---
         async function saveData() {
@@ -293,6 +306,7 @@
                 authStatusEl.textContent = 'Conectado em Tempo Real';
                 authStatusEl.className = 'font-semibold text-green-600';
                 userIdEl.textContent = user.uid;
+                errorContainer.classList.add('hidden'); // Esconde o erro se a autenticação for bem-sucedida
 
                 const docRef = doc(db, "financeControl", "sharedState");
                 onSnapshot(docRef, (docSnap) => {
@@ -311,6 +325,27 @@
                         renderTaskList(initialData.tasks);
                         saveData();
                     }
+                }, (error) => { // Adiciona o handler de erro aqui
+                    console.error("Snapshot error: ", error);
+                    if (error.code === 'permission-denied') {
+                        const rulesUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/rules`;
+                        displayError(`
+                            <b class="font-bold">Erro de Permissão:</b> A base de dados não permite o acesso. Para corrigir, siga estes passos:
+                            <ol class="list-decimal list-inside mt-2 space-y-1">
+                                <li>Abra as <a href="${rulesUrl}" target="_blank" class="font-bold underline">Regras do Firestore</a> do seu projeto Firebase.</li>
+                                <li>Substitua todo o conteúdo do editor de regras pelo código abaixo:</li>
+                            </ol>
+                            <pre class="bg-gray-200 p-2 rounded mt-2 text-xs overflow-x-auto"><code>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}</code></pre>
+                            <p class="mt-2">Depois de colar, clique em <b>"Publicar"</b> e recarregue esta página.</p>
+                        `);
+                    }
                 });
 
             } else {
@@ -323,12 +358,33 @@
 
         // --- INITIALIZATION ---
         async function initializeAppAndAuth() {
-            renderTaskList();
+            // Render the initial structure of ALL components before connecting to Firebase.
+            const initialData = getInitialData();
+            banks = initialData.banks;
+            renderBankTable(banks);
+            renderDriveTable(banks);
+            renderTaskList(initialData.tasks);
+            
             try {
                 await signInAnonymously(auth);
             } catch (error) {
                 console.error("Authentication failed:", error);
                 authStatusEl.textContent = 'Falha na autenticação';
+                if (error.code === 'auth/invalid-api-key') {
+                    displayError("<b>Erro de Configuração:</b> A 'API Key' do Firebase é inválida. Verifique se as credenciais no código estão corretas.");
+                } else if (error.code === 'auth/network-request-failed') {
+                    // FIX: Added specific error handling for network/CORS issues.
+                    const authUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
+                    displayError(`
+                        <b class="font-bold">Erro de Rede ou Domínio não Autorizado:</b> Não foi possível ligar ao Firebase.
+                        <ol class="list-decimal list-inside mt-2 space-y-1">
+                            <li>Verifique a sua ligação à internet.</li>
+                            <li>Se o problema persistir, precisa de autorizar o domínio <b>${window.location.hostname}</b> no seu projeto Firebase.</li>
+                            <li>Vá a <a href="${authUrl}" target="_blank" class="font-bold underline">Authentication > Settings > Authorized domains</a> no seu painel Firebase.</li>
+                            <li>Clique em "Adicionar domínio" e insira <b>${window.location.hostname}</b>.</li>
+                        </ol>
+                    `);
+                }
             }
         }
 
