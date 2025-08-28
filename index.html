@@ -111,13 +111,19 @@
     <script type="module">
         // Import necessary functions from the Firebase SDKs
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- GLOBAL VARIABLES (DO NOT MODIFY) ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // --- CONFIGURAÇÃO DO FIREBASE ---
+        // SUBSTITUA ESTE OBJETO PELAS SUAS PRÓPRIAS CREDENCIAIS DO FIREBASE
+        const firebaseConfig = {
+          apiKey: "AIzaSyCLzKaQ2EMTHPSqd8QyOz_ctJ2p8_ZEuqU",
+          authDomain: "organizacaofinanceiro-f0784.firebaseapp.com",
+          projectId: "organizacaofinanceiro-f0784",
+          storageBucket: "organizacaofinanceiro-f0784.firebasestorage.app",
+          messagingSenderId: "156036781954",
+          appId: "1:156036781954:web:ed5c3210d8a6df03e6619b"
+        };
 
         // --- FIREBASE INITIALIZATION ---
         const app = initializeApp(firebaseConfig);
@@ -236,8 +242,7 @@
 
         // --- DATA HANDLING FUNCTIONS (FIRESTORE) ---
         async function saveData() {
-            // FIX: Corrected the document path to have an even number of segments.
-            const docRef = doc(db, "artifacts", appId, "public", "data", "financeControl", "sharedState");
+            const docRef = doc(db, "financeControl", "sharedState");
             const dataToSave = { banks: [], tasks: {} };
             const initialBankData = getInitialData().banks;
 
@@ -271,8 +276,7 @@
         }
 
         async function clearData() {
-            // FIX: Corrected the document path to have an even number of segments.
-            const docRef = doc(db, "artifacts", appId, "public", "data", "financeControl", "sharedState");
+            const docRef = doc(db, "financeControl", "sharedState");
             try {
                 await setDoc(docRef, getInitialData());
                 showFeedback('Dados na nuvem foram resetados!');
@@ -290,9 +294,7 @@
                 authStatusEl.className = 'font-semibold text-green-600';
                 userIdEl.textContent = user.uid;
 
-                // Setup real-time listener
-                // FIX: Corrected the document path to have an even number of segments.
-                const docRef = doc(db, "artifacts", appId, "public", "data", "financeControl", "sharedState");
+                const docRef = doc(db, "financeControl", "sharedState");
                 onSnapshot(docRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const data = docSnap.data();
@@ -301,14 +303,13 @@
                         renderDriveTable(banks);
                         renderTaskList(data.tasks);
                     } else {
-                        // Document doesn't exist, save initial data
                         console.log("No such document! Creating with initial data.");
                         const initialData = getInitialData();
                         banks = initialData.banks;
                         renderBankTable(banks);
                         renderDriveTable(banks);
                         renderTaskList(initialData.tasks);
-                        saveData(); // Save the initial state to create the document
+                        saveData();
                     }
                 });
 
@@ -322,16 +323,9 @@
 
         // --- INITIALIZATION ---
         async function initializeAppAndAuth() {
-            // Render initial structure so the page isn't blank
             renderTaskList();
-            
-            // Sign in
             try {
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                await signInAnonymously(auth);
             } catch (error) {
                 console.error("Authentication failed:", error);
                 authStatusEl.textContent = 'Falha na autenticação';
