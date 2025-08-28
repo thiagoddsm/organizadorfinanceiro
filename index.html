@@ -21,14 +21,21 @@
             width: 1.25rem; /* 20px */
             height: 1.25rem; /* 20px */
         }
+        #feedback-message {
+            transition: opacity 0.5s ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
 
     <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
-        <header class="text-center mb-8">
+        <header class="text-center mb-6">
             <h1 class="text-3xl font-bold text-gray-900">Controle Financeiro Semanal</h1>
             <p class="text-md text-gray-600 mt-1">Página de acompanhamento para Regina</p>
+             <div class="mt-4 text-sm text-gray-500">
+                <span id="auth-status" class="font-semibold text-red-500">Conectando...</span> | 
+                <span>ID de Usuário: <span id="user-id" class="font-mono">N/A</span></span>
+            </div>
         </header>
 
         <!-- Seção de Ferramentas Úteis -->
@@ -88,7 +95,8 @@
         </div>
         
         <!-- Botões de Ação -->
-        <div class="flex justify-end mt-8 space-x-4">
+        <div class="flex justify-end items-center mt-8 space-x-4">
+            <span id="feedback-message" class="text-green-600 font-medium opacity-0"></span>
             <button id="clear-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
                 Limpar Dados
             </button>
@@ -99,14 +107,40 @@
 
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            let banks = [];
-            
-            const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // Import necessary functions from the Firebase SDKs
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-            function getInitialBanks() {
-                return [
+        // --- GLOBAL VARIABLES (DO NOT MODIFY) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- FIREBASE INITIALIZATION ---
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- DOM ELEMENTS ---
+        const bankTableBody = document.querySelector('#bank-status-table tbody');
+        const driveTableHead = document.querySelector('#drive-status-table thead');
+        const driveTableBody = document.getElementById('drive-status-body');
+        const taskListContainer = document.getElementById('task-list');
+        const saveButton = document.getElementById('save-button');
+        const clearButton = document.getElementById('clear-button');
+        const feedbackMessage = document.getElementById('feedback-message');
+        const authStatusEl = document.getElementById('auth-status');
+        const userIdEl = document.getElementById('user-id');
+
+        let banks = [];
+        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        
+        function getInitialData() {
+            return {
+                banks: [
                     { name: 'Santander', status: '2024-08-20', obs: 'Pente fino pendente (saldo não bate).', checked: false, drive: Array(12).fill(false) },
                     { name: 'Bradesco', status: '', obs: '', checked: false, drive: Array(12).fill(false) },
                     { name: 'Bradesco Niterói', status: '', obs: '', checked: false, drive: Array(12).fill(false) },
@@ -115,159 +149,200 @@
                     { name: 'Cora', status: '', obs: 'Verificar R$50,00 a mais.', checked: false, drive: Array(12).fill(false) },
                     { name: 'PagBank', status: '', obs: 'Itens não conciliados pendentes.', checked: false, drive: Array(12).fill(false) },
                     { name: 'Caixa (Espécie)', status: '', obs: '', checked: false, drive: Array(12).fill(false) }
-                ];
-            }
-
-            const tasks = {
-                'Segunda-feira': [{ id: 'seg1', text: 'Lançamentos do Caixa Espécie' }, { id: 'seg2', text: 'Reunião de equipe' }],
-                'Terça-feira': [{ id: 'ter1', text: 'Lançamentos e conciliação do Mercado Pago' }, { id: 'ter2', text: 'Lançamentos e conciliação do Santander' }],
-                'Quinta-feira': [{ id: 'qui1', text: 'Lançamentos e conciliação do Cora' }, { id: 'qui2', text: 'Lançamentos e conciliação da Caixa' }, { id: 'qui3', text: 'Lançamentos e conciliação do Bradesco (ambas)' }],
-                'Sexta-feira': [{ id: 'sex1', text: 'Lançamentos e conciliação do Caixa Espécie' }, { id: 'sex2', text: 'Lançamentos e conciliação do PagBank' }]
+                ],
+                tasks: {} // Tasks will be populated dynamically from the DOM on save
             };
+        }
 
-            const bankTableBody = document.querySelector('#bank-status-table tbody');
-            const driveTableHead = document.querySelector('#drive-status-table thead');
-            const driveTableBody = document.getElementById('drive-status-body');
-            const taskListContainer = document.getElementById('task-list');
-            const saveButton = document.getElementById('save-button');
-            const clearButton = document.getElementById('clear-button');
+        const tasksStructure = {
+            'Segunda-feira': [{ id: 'seg1', text: 'Lançamentos do Caixa Espécie' }, { id: 'seg2', text: 'Reunião de equipe' }],
+            'Terça-feira': [{ id: 'ter1', text: 'Lançamentos e conciliação do Mercado Pago' }, { id: 'ter2', text: 'Lançamentos e conciliação do Santander' }],
+            'Quinta-feira': [{ id: 'qui1', text: 'Lançamentos e conciliação do Cora' }, { id: 'qui2', text: 'Lançamentos e conciliação da Caixa' }, { id: 'qui3', text: 'Lançamentos e conciliação do Bradesco (ambas)' }],
+            'Sexta-feira': [{ id: 'sex1', text: 'Lançamentos e conciliação do Caixa Espécie' }, { id: 'sex2', text: 'Lançamentos e conciliação do PagBank' }]
+        };
 
-            function renderBankTable() {
-                bankTableBody.innerHTML = '';
-                banks.forEach((bank, index) => {
-                    const row = document.createElement('tr');
-                    row.className = 'bg-white border-b';
-                    row.innerHTML = `
-                        <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">${bank.name}</td>
-                        <td class="px-4 py-3"><input type="date" id="date-${index}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" value="${bank.status}"></td>
-                        <td class="px-4 py-3"><input type="text" id="obs-${index}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" placeholder="Adicionar observação..." value="${bank.obs}"></td>
-                        <td class="px-4 py-3 text-center"><input type="checkbox" id="check-${index}" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"></td>
+        // --- RENDER FUNCTIONS ---
+        function renderBankTable(bankData) {
+            bankTableBody.innerHTML = '';
+            bankData.forEach((bank, index) => {
+                const row = document.createElement('tr');
+                row.className = 'bg-white border-b';
+                row.innerHTML = `
+                    <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">${bank.name}</td>
+                    <td class="px-4 py-3"><input type="date" id="date-${index}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" value="${bank.status}"></td>
+                    <td class="px-4 py-3"><input type="text" id="obs-${index}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" placeholder="Adicionar observação..." value="${bank.obs}"></td>
+                    <td class="px-4 py-3 text-center"><input type="checkbox" id="check-${index}" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"></td>
+                `;
+                bankTableBody.appendChild(row);
+                document.getElementById(`check-${index}`).checked = bank.checked;
+            });
+        }
+        
+        function renderDriveTable(bankData) {
+            let headerHTML = '<tr><th scope="col" class="px-4 py-3">Banco</th>';
+            months.forEach(month => { headerHTML += `<th scope="col" class="px-2 py-3 text-center">${month}</th>`; });
+            headerHTML += '</tr>';
+            driveTableHead.innerHTML = headerHTML;
+
+            driveTableBody.innerHTML = '';
+            bankData.forEach((bank, bankIndex) => {
+                const row = document.createElement('tr');
+                row.className = 'bg-white border-b';
+                let rowHTML = `<td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">${bank.name}</td>`;
+                months.forEach((_, monthIndex) => {
+                    rowHTML += `<td class="px-2 py-3 text-center"><input type="checkbox" id="drive-${bankIndex}-${monthIndex}" class="month-checkbox text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"></td>`;
+                });
+                row.innerHTML = rowHTML;
+                driveTableBody.appendChild(row);
+
+                const driveData = bank.drive || Array(12).fill(false);
+                driveData.forEach((isChecked, monthIndex) => {
+                    document.getElementById(`drive-${bankIndex}-${monthIndex}`).checked = isChecked;
+                });
+            });
+        }
+
+        function renderTaskList(taskData = {}) {
+            taskListContainer.innerHTML = '';
+            for (const day in tasksStructure) {
+                const dayContainer = document.createElement('div');
+                dayContainer.innerHTML = `<h3 class="text-lg font-semibold text-gray-800">${day}</h3>`;
+                const taskGroup = document.createElement('div');
+                taskGroup.className = 'mt-2 space-y-3';
+                tasksStructure[day].forEach(task => {
+                    const savedTask = taskData[task.id] || { checked: false, obs: '' };
+                    const taskItem = document.createElement('div');
+                    taskItem.className = 'task-item flex items-center justify-between p-3 rounded-lg border border-gray-200';
+                    taskItem.innerHTML = `
+                        <div class="flex items-center"><input id="${task.id}-check" type="checkbox" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"><label for="${task.id}-check" class="ml-3 text-sm font-medium text-gray-900 ${savedTask.checked ? 'completed' : ''}">${task.text}</label></div>
+                        <input type="text" id="${task.id}-obs" class="ml-4 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-1/2 p-2" placeholder="Obs..." value="${savedTask.obs}">
                     `;
-                    bankTableBody.appendChild(row);
-                    document.getElementById(`check-${index}`).checked = bank.checked;
+                    taskGroup.appendChild(taskItem);
+                    const checkbox = taskItem.querySelector(`#${task.id}-check`);
+                    checkbox.checked = savedTask.checked;
+                    const label = taskItem.querySelector(`label[for="${task.id}-check"]`);
+                    checkbox.addEventListener('change', () => { label.classList.toggle('completed', checkbox.checked); });
+                });
+                dayContainer.appendChild(taskGroup);
+                taskListContainer.appendChild(dayContainer);
+            }
+        }
+
+        function showFeedback(message) {
+            feedbackMessage.textContent = message;
+            feedbackMessage.style.opacity = '1';
+            setTimeout(() => { feedbackMessage.style.opacity = '0'; }, 2500);
+        }
+
+        // --- DATA HANDLING FUNCTIONS (FIRESTORE) ---
+        async function saveData() {
+            // FIX: Corrected the document path to have an even number of segments.
+            const docRef = doc(db, "artifacts", appId, "public", "data", "financeControl", "sharedState");
+            const dataToSave = { banks: [], tasks: {} };
+            const initialBankData = getInitialData().banks;
+
+            initialBankData.forEach((bank, index) => {
+                const driveStatus = months.map((_, monthIndex) => document.getElementById(`drive-${index}-${monthIndex}`).checked);
+                dataToSave.banks.push({
+                    name: bank.name,
+                    status: document.getElementById(`date-${index}`).value,
+                    obs: document.getElementById(`obs-${index}`).value,
+                    checked: document.getElementById(`check-${index}`).checked,
+                    drive: driveStatus
+                });
+            });
+
+            for (const day in tasksStructure) {
+                tasksStructure[day].forEach(task => {
+                    dataToSave.tasks[task.id] = {
+                        checked: document.getElementById(`${task.id}-check`).checked,
+                        obs: document.getElementById(`${task.id}-obs`).value
+                    };
                 });
             }
-            
-            function renderDriveTable() {
-                let headerHTML = '<tr><th scope="col" class="px-4 py-3">Banco</th>';
-                months.forEach(month => { headerHTML += `<th scope="col" class="px-2 py-3 text-center">${month}</th>`; });
-                headerHTML += '</tr>';
-                driveTableHead.innerHTML = headerHTML;
 
-                driveTableBody.innerHTML = '';
-                banks.forEach((bank, bankIndex) => {
-                    const row = document.createElement('tr');
-                    row.className = 'bg-white border-b';
-                    let rowHTML = `<td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">${bank.name}</td>`;
-                    months.forEach((_, monthIndex) => {
-                        rowHTML += `<td class="px-2 py-3 text-center"><input type="checkbox" id="drive-${bankIndex}-${monthIndex}" class="month-checkbox text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"></td>`;
-                    });
-                    row.innerHTML = rowHTML;
-                    driveTableBody.appendChild(row);
-
-                    bank.drive.forEach((isChecked, monthIndex) => {
-                        document.getElementById(`drive-${bankIndex}-${monthIndex}`).checked = isChecked;
-                    });
-                });
+            try {
+                await setDoc(docRef, dataToSave, { merge: true });
+                showFeedback('Progresso salvo na nuvem!');
+            } catch (error) {
+                console.error("Error saving data: ", error);
+                showFeedback('Erro ao salvar!');
             }
+        }
 
-            function renderTaskList() {
-                taskListContainer.innerHTML = '';
-                for (const day in tasks) {
-                    const dayContainer = document.createElement('div');
-                    dayContainer.innerHTML = `<h3 class="text-lg font-semibold text-gray-800">${day}</h3>`;
-                    const taskGroup = document.createElement('div');
-                    taskGroup.className = 'mt-2 space-y-3';
-                    tasks[day].forEach(task => {
-                        const taskItem = document.createElement('div');
-                        taskItem.className = 'task-item flex items-center justify-between p-3 rounded-lg border border-gray-200';
-                        taskItem.innerHTML = `
-                            <div class="flex items-center"><input id="${task.id}-check" type="checkbox" class="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"><label for="${task.id}-check" class="ml-3 text-sm font-medium text-gray-900">${task.text}</label></div>
-                            <input type="text" id="${task.id}-obs" class="ml-4 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-1/2 p-2" placeholder="Obs...">
-                        `;
-                        taskGroup.appendChild(taskItem);
-                        const checkbox = taskItem.querySelector(`#${task.id}-check`);
-                        const label = taskItem.querySelector(`label[for="${task.id}-check"]`);
-                        checkbox.addEventListener('change', () => { label.classList.toggle('completed', checkbox.checked); });
-                    });
-                    dayContainer.appendChild(taskGroup);
-                    taskListContainer.appendChild(dayContainer);
-                }
+        async function clearData() {
+            // FIX: Corrected the document path to have an even number of segments.
+            const docRef = doc(db, "artifacts", appId, "public", "data", "financeControl", "sharedState");
+            try {
+                await setDoc(docRef, getInitialData());
+                showFeedback('Dados na nuvem foram resetados!');
+            } catch (error) {
+                console.error("Error clearing data: ", error);
+                showFeedback('Erro ao limpar dados!');
             }
-            
-            function saveData() {
-                const dataToSave = { banks: [], tasks: {} };
+        }
 
-                banks.forEach((bank, index) => {
-                    const driveStatus = months.map((_, monthIndex) => document.getElementById(`drive-${index}-${monthIndex}`).checked);
-                    dataToSave.banks.push({
-                        name: bank.name,
-                        status: document.getElementById(`date-${index}`).value,
-                        obs: document.getElementById(`obs-${index}`).value,
-                        checked: document.getElementById(`check-${index}`).checked,
-                        drive: driveStatus
-                    });
-                });
+        // --- AUTHENTICATION & REAL-TIME LISTENER ---
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                // User is signed in.
+                authStatusEl.textContent = 'Conectado em Tempo Real';
+                authStatusEl.className = 'font-semibold text-green-600';
+                userIdEl.textContent = user.uid;
 
-                for (const day in tasks) {
-                    tasks[day].forEach(task => {
-                        dataToSave.tasks[task.id] = {
-                            checked: document.getElementById(`${task.id}-check`).checked,
-                            obs: document.getElementById(`${task.id}-obs`).value
-                        };
-                    });
-                }
-
-                localStorage.setItem('financeControlData', JSON.stringify(dataToSave));
-                alert('Progresso salvo com sucesso!');
-            }
-
-            function loadData() {
-                const savedData = JSON.parse(localStorage.getItem('financeControlData'));
-                if (!savedData) return;
-
-                if (savedData.banks) {
-                    banks = savedData.banks;
-                }
-                
-                renderBankTable();
-                renderDriveTable();
-
-                if (savedData.tasks) {
-                    for (const day in tasks) {
-                        tasks[day].forEach(task => {
-                            if (savedData.tasks[task.id]) {
-                                const checkbox = document.getElementById(`${task.id}-check`);
-                                const label = document.querySelector(`label[for="${task.id}-check"]`);
-                                checkbox.checked = savedData.tasks[task.id].checked;
-                                document.getElementById(`${task.id}-obs`).value = savedData.tasks[task.id].obs;
-                                label.classList.toggle('completed', checkbox.checked);
-                            }
-                        });
+                // Setup real-time listener
+                // FIX: Corrected the document path to have an even number of segments.
+                const docRef = doc(db, "artifacts", appId, "public", "data", "financeControl", "sharedState");
+                onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        banks = data.banks || getInitialData().banks;
+                        renderBankTable(banks);
+                        renderDriveTable(banks);
+                        renderTaskList(data.tasks);
+                    } else {
+                        // Document doesn't exist, save initial data
+                        console.log("No such document! Creating with initial data.");
+                        const initialData = getInitialData();
+                        banks = initialData.banks;
+                        renderBankTable(banks);
+                        renderDriveTable(banks);
+                        renderTaskList(initialData.tasks);
+                        saveData(); // Save the initial state to create the document
                     }
-                }
-            }
-            
-            function clearData() {
-                if (confirm('Tem certeza que deseja limpar todos os dados preenchidos? Esta ação não pode ser desfeita.')) {
-                    localStorage.removeItem('financeControlData');
-                    banks = getInitialBanks();
-                    renderBankTable();
-                    renderDriveTable();
-                    renderTaskList();
-                }
-            }
+                });
 
-            // Inicialização
-            banks = getInitialBanks();
-            renderBankTable();
-            renderDriveTable();
-            renderTaskList();
-            loadData();
-
-            saveButton.addEventListener('click', saveData);
-            clearButton.addEventListener('click', clearData);
+            } else {
+                // User is signed out.
+                authStatusEl.textContent = 'Desconectado';
+                authStatusEl.className = 'font-semibold text-red-500';
+                userIdEl.textContent = 'N/A';
+            }
         });
+
+        // --- INITIALIZATION ---
+        async function initializeAppAndAuth() {
+            // Render initial structure so the page isn't blank
+            renderTaskList();
+            
+            // Sign in
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication failed:", error);
+                authStatusEl.textContent = 'Falha na autenticação';
+            }
+        }
+
+        initializeAppAndAuth();
+
+        saveButton.addEventListener('click', saveData);
+        clearButton.addEventListener('click', clearData);
+
     </script>
 </body>
 </html>
