@@ -91,6 +91,31 @@
             </div>
         </div>
 
+        <!-- Seção de Saldos dos Centros de Custo -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-xl font-semibold mb-4 border-b pb-2">Saldos dos Centros de Custo (Ministérios)</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left text-gray-700" id="ministries-table">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                        <tr>
+                            <th scope="col" class="px-4 py-3">Ministério</th>
+                            <th scope="col" class="px-4 py-3">Saldo (R$)</th>
+                            <th scope="col" class="px-4 py-3">Observações</th>
+                            <th scope="col" class="px-4 py-3 text-center">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ministries-table-body">
+                        <!-- Linhas dos ministérios preenchidas via JS -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4">
+                <button id="add-ministry-button" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300 text-sm">
+                    + Adicionar Novo Ministério
+                </button>
+            </div>
+        </div>
+
         <!-- Seção de Tarefas Semanais -->
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h2 class="text-xl font-semibold mb-4 border-b pb-2">Checklist de Tarefas da Semana</h2>
@@ -120,9 +145,6 @@
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURAÇÃO DO FIREBASE ---
-        // As credenciais abaixo são para o seu projeto Firebase.
-        // IMPORTANTE: Para que a aplicação funcione, as regras de segurança do Firestore
-        // no seu projeto precisam de permitir leitura e escrita.
         const firebaseConfig = {
           apiKey: "AIzaSyCLzKaQ2EMTHPSqd8QyOz_ctJ2p8_ZEuqU",
           authDomain: "organizacaofinanceiro-f0784.firebaseapp.com",
@@ -141,6 +163,8 @@
         const bankTableBody = document.querySelector('#bank-status-table tbody');
         const driveTableHead = document.querySelector('#drive-status-table thead');
         const driveTableBody = document.getElementById('drive-status-body');
+        const ministriesTableBody = document.getElementById('ministries-table-body');
+        const addMinistryButton = document.getElementById('add-ministry-button');
         const taskListContainer = document.getElementById('task-list');
         const saveButton = document.getElementById('save-button');
         const clearButton = document.getElementById('clear-button');
@@ -149,7 +173,11 @@
         const userIdEl = document.getElementById('user-id');
         const errorContainer = document.getElementById('error-container');
 
-        let banks = [];
+        let localData = {
+            banks: [],
+            ministries: [],
+            tasks: {}
+        };
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         
         function getInitialData() {
@@ -164,7 +192,11 @@
                     { name: 'PagBank', status: '', obs: 'Itens não conciliados pendentes.', checked: false, drive: Array(12).fill(false) },
                     { name: 'Caixa (Espécie)', status: '', obs: '', checked: false, drive: Array(12).fill(false) }
                 ],
-                tasks: {} // Tasks will be populated dynamically from the DOM on save
+                ministries: [
+                    { name: 'Ministério Kids', balance: '', obs: '' },
+                    { name: 'Green', balance: '', obs: '' }
+                ],
+                tasks: {} 
             };
         }
 
@@ -216,6 +248,33 @@
             });
         }
 
+        function renderMinistriesTable(ministryData) {
+            ministriesTableBody.innerHTML = '';
+            ministryData.forEach((ministry, index) => {
+                const row = document.createElement('tr');
+                row.className = 'bg-white border-b';
+                row.innerHTML = `
+                    <td class="px-4 py-3"><input type="text" value="${ministry.name}" class="ministry-name bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" placeholder="Nome do Ministério"></td>
+                    <td class="px-4 py-3"><input type="text" value="${ministry.balance}" class="ministry-balance bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" placeholder="R$ 0,00"></td>
+                    <td class="px-4 py-3"><input type="text" value="${ministry.obs}" class="ministry-obs bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2" placeholder="Adicionar observação..."></td>
+                    <td class="px-4 py-3 text-center">
+                        <button class="delete-ministry-button text-red-500 hover:text-red-700" data-index="${index}">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd"></path></svg>
+                        </button>
+                    </td>
+                `;
+                ministriesTableBody.appendChild(row);
+            });
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.delete-ministry-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const index = parseInt(e.currentTarget.getAttribute('data-index'));
+                    localData.ministries.splice(index, 1);
+                    renderMinistriesTable(localData.ministries);
+                });
+            });
+        }
+
         function renderTaskList(taskData = {}) {
             taskListContainer.innerHTML = '';
             for (const day in tasksStructure) {
@@ -256,13 +315,13 @@
         // --- DATA HANDLING FUNCTIONS (FIRESTORE) ---
         async function saveData() {
             const docRef = doc(db, "financeControl", "sharedState");
-            const dataToSave = { banks: [], tasks: {} };
-            const initialBankData = getInitialData().banks;
+            const dataToSave = { banks: [], ministries: [], tasks: {} };
 
-            initialBankData.forEach((bank, index) => {
+            // Save banks
+            getInitialData().banks.forEach((_, index) => {
                 const driveStatus = months.map((_, monthIndex) => document.getElementById(`drive-${index}-${monthIndex}`).checked);
                 dataToSave.banks.push({
-                    name: bank.name,
+                    name: getInitialData().banks[index].name,
                     status: document.getElementById(`date-${index}`).value,
                     obs: document.getElementById(`obs-${index}`).value,
                     checked: document.getElementById(`check-${index}`).checked,
@@ -270,6 +329,16 @@
                 });
             });
 
+            // Save ministries from the DOM
+            document.querySelectorAll('#ministries-table-body tr').forEach(row => {
+                dataToSave.ministries.push({
+                    name: row.querySelector('.ministry-name').value,
+                    balance: row.querySelector('.ministry-balance').value,
+                    obs: row.querySelector('.ministry-obs').value,
+                });
+            });
+
+            // Save tasks
             for (const day in tasksStructure) {
                 tasksStructure[day].forEach(task => {
                     dataToSave.tasks[task.id] = {
@@ -302,30 +371,33 @@
         // --- AUTHENTICATION & REAL-TIME LISTENER ---
         onAuthStateChanged(auth, user => {
             if (user) {
-                // User is signed in.
                 authStatusEl.textContent = 'Conectado em Tempo Real';
                 authStatusEl.className = 'font-semibold text-green-600';
                 userIdEl.textContent = user.uid;
-                errorContainer.classList.add('hidden'); // Esconde o erro se a autenticação for bem-sucedida
+                errorContainer.classList.add('hidden'); 
 
                 const docRef = doc(db, "financeControl", "sharedState");
                 onSnapshot(docRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        banks = data.banks || getInitialData().banks;
-                        renderBankTable(banks);
-                        renderDriveTable(banks);
-                        renderTaskList(data.tasks);
+                        localData = {
+                            banks: data.banks || getInitialData().banks,
+                            ministries: data.ministries || getInitialData().ministries,
+                            tasks: data.tasks || getInitialData().tasks
+                        };
+                        renderBankTable(localData.banks);
+                        renderDriveTable(localData.banks);
+                        renderMinistriesTable(localData.ministries);
+                        renderTaskList(localData.tasks);
                     } else {
-                        console.log("No such document! Creating with initial data.");
-                        const initialData = getInitialData();
-                        banks = initialData.banks;
-                        renderBankTable(banks);
-                        renderDriveTable(banks);
-                        renderTaskList(initialData.tasks);
+                        localData = getInitialData();
+                        renderBankTable(localData.banks);
+                        renderDriveTable(localData.banks);
+                        renderMinistriesTable(localData.ministries);
+                        renderTaskList(localData.tasks);
                         saveData();
                     }
-                }, (error) => { // Adiciona o handler de erro aqui
+                }, (error) => { 
                     console.error("Snapshot error: ", error);
                     if (error.code === 'permission-denied') {
                         const rulesUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/rules`;
@@ -349,7 +421,6 @@ service cloud.firestore {
                 });
 
             } else {
-                // User is signed out.
                 authStatusEl.textContent = 'Desconectado';
                 authStatusEl.className = 'font-semibold text-red-500';
                 userIdEl.textContent = 'N/A';
@@ -358,12 +429,11 @@ service cloud.firestore {
 
         // --- INITIALIZATION ---
         async function initializeAppAndAuth() {
-            // Render the initial structure of ALL components before connecting to Firebase.
-            const initialData = getInitialData();
-            banks = initialData.banks;
-            renderBankTable(banks);
-            renderDriveTable(banks);
-            renderTaskList(initialData.tasks);
+            localData = getInitialData();
+            renderBankTable(localData.banks);
+            renderDriveTable(localData.banks);
+            renderMinistriesTable(localData.ministries);
+            renderTaskList(localData.tasks);
             
             try {
                 await signInAnonymously(auth);
@@ -373,7 +443,6 @@ service cloud.firestore {
                 if (error.code === 'auth/invalid-api-key') {
                     displayError("<b>Erro de Configuração:</b> A 'API Key' do Firebase é inválida. Verifique se as credenciais no código estão corretas.");
                 } else if (error.code === 'auth/network-request-failed') {
-                    // FIX: Added specific error handling for network/CORS issues.
                     const authUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
                     displayError(`
                         <b class="font-bold">Erro de Rede ou Domínio não Autorizado:</b> Não foi possível ligar ao Firebase.
@@ -392,7 +461,12 @@ service cloud.firestore {
 
         saveButton.addEventListener('click', saveData);
         clearButton.addEventListener('click', clearData);
+        addMinistryButton.addEventListener('click', () => {
+            localData.ministries.push({ name: '', balance: '', obs: '' });
+            renderMinistriesTable(localData.ministries);
+        });
 
     </script>
 </body>
 </html>
+
